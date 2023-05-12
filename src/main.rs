@@ -6,13 +6,13 @@ fn main() {
     glfw.window_hint(glfw::WindowHint::ContextVersion(4, 6)); // OpenGL 4.6으로 띄우기
     glfw.window_hint(glfw::WindowHint::ContextVersionMajor(4)); // OpenGL 4
     // 어떤 함수가 오래 걸리는지 등을 분석하는 도구: 프로파일링
-    glfw.window_hint(glfw::WindowHint::OpenGLProfile(
+    glfw.window_hint(glfw::WindowHint::OpenGlProfile(
         glfw::OpenGlProfileHint::Core,
     )); // 전체? or 주요? or 간단한 것만 보여줄지를 결정.
     glfw.window_hint(glfw::WindowHint::OpenGlDebugContext(true)); // debug용 context 띄우기?
 
-    let windows_size = (500, 500);
-    let windows_title = "Minecraft";
+    let window_size = (500, 500);
+    let window_title = "Minecraft";
 
     let (mut window, events) = glfw
         .create_window(
