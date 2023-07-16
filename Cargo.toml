@@ -1,7 +1,8 @@
 [package]
 name = "r-minecraft"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+# package manager에 rust를 등록하면 version이 따라간다.
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
