@@ -35,8 +35,9 @@ fn main() {
     while !window.should_close() {
         glfw.poll_events(); // Event를 당겨오는 거.
 
-        for (_, event) in glfw::flush_messages(&events) {
-            println!("{:?}", event);
+        for (first, event) in glfw::flush_messages(&events) {
+            println!("
+            {:?}{:?}", first, event);
         }
 
         // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
