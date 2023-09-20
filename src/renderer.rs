@@ -6,7 +6,9 @@ use std::os::raw::c_void;
 pub struct QuadProps {
     pub position: (f32, f32),
     pub size: (f32, f32), // width, height
-    pub color: (f32, f32, f32, f32),
+    pub texture_id: u32,
+    // pub texture_coords: (f32, f32) => 0.0, 1.0
+    // texture id + coords가 총 3개, 기존 4개에서 1개 줄음.
 }
 
 // https://whilescape.tistory.com/entry/OpenGL-%EC%98%A4%ED%94%88%EC%A7%80%EC%97%98-%EB%8D%B0%EC%9D%B4%ED%84%B0-%EA%B4%80%EB%A0%A8-%EA%B0%9C%EB%85%90-%EC%A0%95%EB%A6%AC1
@@ -78,13 +80,13 @@ impl Renderer {
         gl_call!(gl::VertexArrayAttribBinding(vao, 0, binding_index_pos)); // vertex attribute와 vertex buffer를 연결
         // Buffer 공간을 VAO에 binding시키는 것.
         // 설명 in figure 5
-        // 
+        // 6 -> 5 이유: color->texture_id, 
         gl_call!(gl::VertexArrayVertexBuffer(
             vao,
             binding_index_pos,
             vbo,
             0,
-            (6 * std::mem::size_of::<f32>()) as i32
+            (5 * std::mem::size_of::<f32>()) as i32
         ));
 
         // Color
@@ -92,7 +94,7 @@ impl Renderer {
         gl_call!(gl::VertexArrayAttribFormat (
             vao,
             1, // 1번 attrib
-            4, // 크기는 4. 4칸짜리를 만듦. r, g, b, a 4가지를 넣을 꺼임.
+            3, // 크기는 4. 4칸짜리를 만듦. r, g, b, a 4가지를 넣을 꺼임.
             gl::FLOAT, // type
             gl::FALSE, // 정규화되어있?
             (2 * std::mem::size_of::<f32>()) as u32 // 상대적인 offset
@@ -105,7 +107,7 @@ impl Renderer {
             binding_index_color,
             vbo,
             0,
-            (6 * std::mem::size_of::<f32>() as isize) as i32
+            (5 * std::mem::size_of::<f32>() as isize) as i32
         ));
 
         Renderer {
@@ -122,15 +124,17 @@ impl Renderer {
     }
 
     pub fn submit_quad(&mut self, quad_props: QuadProps) {
-        let QuadProps { position: (x, y), size: (w, h), color: (r, g, b, a) } = quad_props;
-
+        let QuadProps { position: (x, y), size: (w, h), texture_id } = quad_props;
+        
+        let texture_id = texture_id as f32;
         // ccw.
-        self.vertices.extend_from_slice(&[x, y, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x + w, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x, y + h, r, g, b, a]);
-        self.vertices.extend_from_slice(&[x, y, r, g, b, a]);
+        // texture size가 2의 거듭제곱 => 자르기 편함. => 32*32 ㅇㅇ
+        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
+        self.vertices.extend_from_slice(&[x + w, y, texture_id, 1.0, 0.0]);
+        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
+        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
+        self.vertices.extend_from_slice(&[x, y + h, texture_id, 0.0, 1.0]);
+        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
     }
 
     pub fn end_batch(&mut self) {

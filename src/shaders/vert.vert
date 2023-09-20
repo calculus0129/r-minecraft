@@ -2,9 +2,11 @@
 
 // in: 입력
 layout (location = 0) in vec2 position; // vao의 0번째 attribute를 position이라는 이름의 vec2 변수에 담는다.
-layout (location = 1) in vec4 color; // ㅇㅇ r, g, b, a
+layout (location = 1) in vec3 texture_info; // ㅇㅇ r, g, b, a
 
-out vec4 outColor; // out: 내보내기 vec4 type의 outColor를 내보내기.
+//out vec4 outColor; // out: 내보내기 vec4 type의 outColor를 내보내기.
+out float texture_id;
+out vec2 texture_coords;
 
 // vertex shader에서는 color를 걍 넘겨주는 것밖에 안하니까
 
@@ -18,5 +20,7 @@ void main() {
 
     // NDC Normalized Device Coordinate. 라는 정규화된 좌표공간에 담기에도 쓰임. 해상도.
 
-    outColor = color; // color는 그대로 내보낸다.
+    //outColor = color; // color는 그대로 내보낸다.
+    texture_id = texture_info.x;
+    texture_coords = texture_info.yz;
 }

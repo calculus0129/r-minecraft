@@ -2,8 +2,11 @@ pub mod debugging;
 pub mod renderer;
 pub mod shader;
 
+pub mod texture;
+
 use crate::renderer::{QuadProps, Renderer};
 use crate::shader::{ShaderPart, ShaderProgram};
+use crate::texture::create_texture;
 
 use rand::Rng;
 use glfw::{Key};
@@ -81,6 +84,9 @@ fn main() {
                                     // 반응속도가 중요한 게임들은 vsync를 끄는 게 많다.
                                     // 많은 frame ㅇㅇ
     
+    let id_cobble = create_texture("blocks/cobblestone.png");
+    let id_tnt = create_texture("blocks/tnt.png");
+
     let mut renderer = Renderer::new(100_000); // _: 쉼표 느낌
 
     let vert = ShaderPart::from_vert_source(&CString::new(include_str!("shaders/vert.vert")).unwrap()).unwrap();
@@ -108,12 +114,7 @@ fn main() {
                             (window.get_cursor_pos().1 as f32).to_range(0.0, 500.0, 1.0, -1.0),
                         ),
                         size: (0.5, 0.5),
-                        color: (
-                            rng.gen_range(0.0..=1.0),
-                            rng.gen_range(0.0..=1.0),
-                            rng.gen_range(0.0..=1.0),
-                            1.0
-                        ),
+                        texture_id: rng.gen_range(0..2),
                     });
                 }
                 _ => {},
@@ -126,6 +127,10 @@ fn main() {
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT));
 
         program.use_program();
+        program.set_uniform1iv("textures", &[0, 1]);
+
+        gl_call!(gl::BindTextureUnit(0, id_cobble));
+        gl_call!(gl::BindTextureUnit(1, id_tnt));
 
         renderer.begin_batch();
         for quad in &quads {
