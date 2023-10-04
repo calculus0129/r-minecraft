@@ -84,8 +84,23 @@ fn main() {
                                     // 반응속도가 중요한 게임들은 vsync를 끄는 게 많다.
                                     // 많은 frame ㅇㅇ
     
-    let id_cobble = create_texture("blocks/cobblestone.png");
-    let id_tnt = create_texture("blocks/tnt.png");
+    // Backface: 물체의 뒷부분을 배제.
+    // Frustrum: 선별해서 뒤에 있는 물체를 제외함. e.g. 그림자는 그려야 함
+    // Occlusion: 물건에 의해 가려진 걸 배제.
+    gl_call!(gl::Enable(gl::CULL_FACE)); // cull: 안보이는 거 구현 안함
+    gl_call!(gl::CullFace(gl::BACK)); // backface만 일단 함. 원리: 광학 등이 쓰임
+    gl_call!(gl::Enable(gl::DEPTH_TEST)); // 물체들의 depth를 비교함. => 뭐가 위에 나오는지 판단됨.
+
+    create_texture("blocks/cobblestone.png");
+    create_texture("blocks/tnt.png");
+    create_texture("blocks/diamond_block.png");
+    create_texture("blocks/diamond_ore.png");
+    create_texture("blocks/dirt.png");
+    create_texture("blocks/emerald_ore.png");
+    create_texture("blocks/glass.png");
+    create_texture("blocks/glowstone.png");
+    create_texture("blocks/gold_block.png");
+    create_texture("blocks/gold_ore.png");
 
     let mut renderer = Renderer::new(100_000); // _: 쉼표 느낌
 
@@ -100,6 +115,7 @@ fn main() {
 
     let mut quads = Vec::new();
     let mut rng = rand::thread_rng();
+    let mut depth = 0.9;
 
     while !window.should_close() {
         glfw.poll_events(); // Event를 당겨오는 거.
@@ -112,10 +128,14 @@ fn main() {
                         position: (
                             (window.get_cursor_pos().0 as f32).to_range(0.0, 500.0, -1.0, 1.0),
                             (window.get_cursor_pos().1 as f32).to_range(0.0, 500.0, 1.0, -1.0),
+                            depth,
                         ),
                         size: (0.5, 0.5),
-                        texture_id: rng.gen_range(0..2),
+                        texture_id: rng.gen_range(1..12), // Why from 1? 왜 지금은 0이 검정색이 되지?
+                        texture_coords: (0.0, 0.0, 1.0, 1.0),
                     });
+
+                    depth -= 0.001;
                 }
                 _ => {},
             }
@@ -124,20 +144,15 @@ fn main() {
             println!("{:?}", event);
         }*/
         gl_call!(gl::ClearColor(1.0, 1.0, 1.0, 1.0));
-        gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT));
-
-        program.use_program();
-        program.set_uniform1iv("textures", &[0, 1]);
-
-        gl_call!(gl::BindTextureUnit(0, id_cobble));
-        gl_call!(gl::BindTextureUnit(1, id_tnt));
+        gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 
         renderer.begin_batch();
         for quad in &quads {
             renderer.submit_quad(quad.clone());
         }
 
-        renderer.end_batch();
+        program.use_program();
+        renderer.end_batch(&program);
         // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
         window.swap_buffers();
 

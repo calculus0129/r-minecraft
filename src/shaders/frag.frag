@@ -5,7 +5,7 @@ out vec4 fragColor;
 in float texture_id;
 in vec2 texture_coords;
 
-uniform sampler2D textures[2]; // 그 텍스처 냠
+uniform sampler2D textures[32]; // 32개 텍스처 지원
 
 // 여기에서 color를 처리한다.
 // e.g. 흑백 처리, 금속성 광택 처리

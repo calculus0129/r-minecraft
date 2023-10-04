@@ -1,19 +1,25 @@
-use crate::gl_call;
-use std::os::raw::c_void;
+use crate::{gl_call, shader::ShaderProgram};
+use std::{os::raw::c_void, collections::HashMap, cmp::Ordering};
+use itertools::Itertools;
 
 // quad: quadrangle
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QuadProps {
-    pub position: (f32, f32),
+    pub position: (f32, f32, f32),
     pub size: (f32, f32), // width, height
     pub texture_id: u32,
+    pub texture_coords: (f32, f32, f32, f32),
     // pub texture_coords: (f32, f32) => 0.0, 1.0
     // texture id + coords가 총 3개, 기존 4개에서 1개 줄음.
 }
 
+//println!("{:?}"): debug trait 호출
+
 // https://whilescape.tistory.com/entry/OpenGL-%EC%98%A4%ED%94%88%EC%A7%80%EC%97%98-%EB%8D%B0%EC%9D%B4%ED%84%B0-%EA%B4%80%EB%A0%A8-%EA%B0%9C%EB%85%90-%EC%A0%95%EB%A6%AC1
 // Implementation: https://t1.daumcdn.net/cfile/tistory/998E70495C7FC78239?original
 pub struct Renderer {
+    texture_units: u32,
+    quads: HashMap<u32, Vec<QuadProps>>,
     vertices: Vec<f32>,
     // OpenGL에 이런 게 있다.
     vbo: u32, // vbo: vertex buffer object: GPU에 있는 memory 버퍼. 무엇을 담고 있나? 도형같은 게 있죠? 도형을 그리는데 필요한 정보
@@ -32,6 +38,14 @@ pub struct Renderer {
 impl Renderer {
     // capacity: vertex array 공간 크기
     pub fn new(capacity: usize) -> Self {
+        let mut texture_units: i32 = 0;
+        // MAX_TEXTURE_IMAGE_UNITS을 가져온다. i.e. 한 image 안에 몇 개의 texture를 넣을 수 있는지
+        gl_call!(gl::GetIntegerv(gl::MAX_TEXTURE_IMAGE_UNITS, &mut texture_units));
+        assert!(texture_units > 0);
+
+        let texture_units = texture_units as u32;
+        let quads: HashMap<u32, Vec<QuadProps>> = HashMap::new();
+
         let mut vertices = Vec::new();
         vertices.reserve(capacity);
 
@@ -68,7 +82,7 @@ impl Renderer {
         gl_call!(gl::VertexArrayAttribFormat (
             vao,
             0, // 0번 attrib
-            2, // 크기는 2. 2칸짜리를 만듦. 값이 x, y 2개만 넣을 꺼임.
+            3, // 크기는 2. 2칸짜리를 만듦. 값이 x, y 2개만 넣을 꺼임.
             gl::FLOAT, // type
             gl::FALSE, // 정규화되어있?
             0 // 상대적인 offset
@@ -86,7 +100,7 @@ impl Renderer {
             binding_index_pos,
             vbo,
             0,
-            (5 * std::mem::size_of::<f32>()) as i32
+            (6 * std::mem::size_of::<f32>()) as i32
         ));
 
         // Color
@@ -97,7 +111,7 @@ impl Renderer {
             3, // 크기는 4. 4칸짜리를 만듦. r, g, b, a 4가지를 넣을 꺼임.
             gl::FLOAT, // type
             gl::FALSE, // 정규화되어있?
-            (2 * std::mem::size_of::<f32>()) as u32 // 상대적인 offset
+            (3 * std::mem::size_of::<f32>()) as u32 // 상대적인 offset
         ));
 
         // Color Binding
@@ -107,10 +121,12 @@ impl Renderer {
             binding_index_color,
             vbo,
             0,
-            (5 * std::mem::size_of::<f32>() as isize) as i32
+            (6 * std::mem::size_of::<f32>() as isize) as i32
         ));
 
         Renderer {
+            texture_units,
+            quads,
             vertices,
             vbo,
             vao,
@@ -120,31 +136,74 @@ impl Renderer {
 
     // 데이터를 넣기: batch한다.
     pub fn begin_batch(&mut self) {
+        self.quads.clear();
         self.vertices.clear();
     }
 
+    // 1 quad 여러 textures. texture id마다 quad props를 하나하나 넣은 거임.
     pub fn submit_quad(&mut self, quad_props: QuadProps) {
-        let QuadProps { position: (x, y), size: (w, h), texture_id } = quad_props;
-        
-        let texture_id = texture_id as f32;
-        // ccw.
-        // texture size가 2의 거듭제곱 => 자르기 편함. => 32*32 ㅇㅇ
-        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
-        self.vertices.extend_from_slice(&[x + w, y, texture_id, 1.0, 0.0]);
-        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
-        self.vertices.extend_from_slice(&[x + w, y + h, texture_id, 1.0, 1.0]);
-        self.vertices.extend_from_slice(&[x, y + h, texture_id, 0.0, 1.0]);
-        self.vertices.extend_from_slice(&[x, y, texture_id, 0.0, 0.0]);
+        match self.quads.get_mut(&quad_props.texture_id) {
+            Some (quads) => quads ,
+            None => {
+                self.quads.insert(quad_props.texture_id, Vec::new());
+                self.quads.get_mut(&quad_props.texture_id).unwrap()
+            }
+        }.push(quad_props);
     }
 
-    pub fn end_batch(&mut self) {
-        // vertices Buffer의 subset임
-        // 데이터를 실제로 vertices를 vbo에 넣음.
-        gl_call!(gl::NamedBufferSubData(self.vbo, 0 as isize, (self.vertices.len() * std::mem::size_of::<f32>()) as isize, self.vertices.as_ptr() as *mut c_void));
+    pub fn end_batch(&mut self, program: &ShaderProgram) {
+        let mut draw_calls = 0;
 
-        // vertex array를 Graphic card에 그리라고 보내는 것
-        gl_call!(gl::BindVertexArray(self.vao)); // 실제로 bind.
-        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, self.vertices.len() as i32)); // Triangles를 vertices.len()만큼 형성해주라
+        // TODO: Handle quads without textures
+
+        for vec in self.quads.values_mut() {
+            vec.sort_by(|a, b| {
+                if a.position.2 < b.position.2 {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }) // z값에 따라 오름차순 정렬 => 밑에서부터 구성되도록 => 덮어 씌워지게
+        }
+
+        // chunk를 HW에서 소화할 수 있는 texture 개수. 그 단위로 쪼갠 것.
+        let chunks = &self.quads.keys().chunks(self.texture_units as usize);
+        // 이게 1이면 draw call (texture 생성 횟수)가 늘어나서 느려짐. 그게 핵심!
+
+        for chunk in chunks {
+            let mut tex_units = Vec::new();
+            self.vertices.clear();
+
+            for(tex_unit, &texture_id) in chunk.enumerate() {
+                for quad in &self.quads[&texture_id] {
+                    let QuadProps { position: (x, y, z), size: (w, h), texture_id: _, texture_coords:  (tex_x_min, tex_y_min, tex_x_max, tex_y_max)} = *quad;
+
+                    let tex_unit = tex_unit as f32;
+                    self.vertices.extend_from_slice(&[x, y, z, tex_unit, tex_x_min, tex_y_min]);
+                    self.vertices.extend_from_slice(&[x + w, y, z, tex_unit, tex_x_max, tex_y_min]);
+                    self.vertices.extend_from_slice(&[x + w, y + h, z, tex_unit, tex_x_max, tex_y_max]);
+                    self.vertices.extend_from_slice(&[x + w, y + h, z, tex_unit, tex_x_max, tex_y_max]);
+                    self.vertices.extend_from_slice(&[x, y + h, z, tex_unit, tex_x_min, tex_y_max]);
+                    self.vertices.extend_from_slice(&[x, y, z, tex_unit, tex_x_min, tex_y_min]);
+                }
+
+                gl_call!(gl::BindTextureUnit(tex_unit as u32, texture_id));
+                tex_units.push(tex_unit as i32);
+            }
+
+            // program: ShaderProgram. 여기에 이런 변수를 넣는다.
+            program.set_uniform1iv("textures", tex_units.as_slice()); // Texture id 목록을 uniform 변수 이름에 넣느나.
+
+            // vertices Buffer의 subset임
+            // 데이터를 실제로 vertices를 vbo에 넣음.
+            gl_call!(gl::NamedBufferSubData(self.vbo, 0 as isize, (self.vertices.len() * std::mem::size_of::<f32>()) as isize, self.vertices.as_ptr() as *mut c_void));
+
+            // vertex array를 Graphic card에 그리라고 보내는 것
+            gl_call!(gl::BindVertexArray(self.vao)); // 실제로 bind.
+            gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, self.vertices.len() as i32)); // Triangles를 vertices.len()만큼 형성해주라
+
+            draw_calls += 1; // e.g. 100개인데 texture_unit이 15이면 7번 그려야 하니까 draw_calls는 7번임.
+        }
     }
 
 }
