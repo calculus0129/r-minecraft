@@ -35,6 +35,12 @@ pub struct Renderer {
 // 2. Vertex Array(CPU) -> Vertex Array가 있으면 얘를 VBO(GPU)에 binding
 // 3. 그 data를 가지고 이어준다. General Vertex Attributes (CPU)
 
+impl Default for Renderer {
+    fn default() -> Self {
+        Renderer::new(1_000_000)
+    }
+}
+
 impl Renderer {
     // capacity: vertex array 공간 크기
     pub fn new(capacity: usize) -> Self {

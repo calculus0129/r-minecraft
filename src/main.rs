@@ -4,6 +4,8 @@ pub mod shader;
 
 pub mod texture;
 
+pub mod ecs;
+
 use crate::renderer::{QuadProps, Renderer};
 use crate::shader::{ShaderPart, ShaderProgram};
 use crate::texture::create_texture;
@@ -73,6 +75,10 @@ fn main() {
     
     // ?
     window.set_raw_mouse_motion(true);
+
+    // From 재민이's code
+    // 기능이 뭐지?? 이거 없으면 glfw not loaded ~ 에러 남
+    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
     unsafe { glfwSwapInterval(0) }; // vsync off: 0, on: 1 // 수직 동기 버퍼를 거쳐야 한다.
                                     // frame 처리와 frame 출력을 동기화한다.,
