@@ -99,14 +99,14 @@ fn main() {
 
     create_texture("blocks/cobblestone.png");
     create_texture("blocks/tnt.png");
-    create_texture("blocks/diamond_block.png");
+    /*create_texture("blocks/diamond_block.png");
     create_texture("blocks/diamond_ore.png");
     create_texture("blocks/dirt.png");
     create_texture("blocks/emerald_ore.png");
     create_texture("blocks/glass.png");
     create_texture("blocks/glowstone.png");
     create_texture("blocks/gold_block.png");
-    create_texture("blocks/gold_ore.png");
+    create_texture("blocks/gold_ore.png");*/
 
     let mut renderer = Renderer::new(100_000); // _: 쉼표 느낌
 
