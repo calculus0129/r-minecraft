@@ -1,6 +1,7 @@
 pub mod debugging;
 pub mod renderer;
 pub mod shader;
+pub mod util;
 
 pub mod texture;
 
@@ -12,11 +13,15 @@ use crate::renderer::{QuadProps, Renderer};
 use crate::shader::{ShaderPart, ShaderProgram};
 use crate::debugging::*;
 use crate::texture::create_texture;
+use crate::util::forward;
 
 use rand::Rng;
-use glfw::{Key, CursorMode};
+use glfw::{Key, CursorMode, Action};
 use glfw::ffi::{glfwGetTime, glfwSwapInterval};
 use glfw::Context;
+use nalgebra_glm::{vec3, pi};
+use nalgebra::{Vector3, Matrix4, clamp};
+
 use std::ffi::CString;
 use std::os::raw::c_void;
 
@@ -85,11 +90,15 @@ fn main() {
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
+    let mut camera_position = vec3(0.0f32, 0.0, 0.0);
+    let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
+
+
     let mut renderer = Renderer::new(100_000); // _: 쉼표 느낌
 
-    let vert = ShaderPart::from_vert_source(&CString::new(include_str!("shaders/vert.vert")).unwrap()).unwrap();
-    let frag = ShaderPart::from_frag_source(&CString::new(include_str!("shaders/frag.frag")).unwrap()).unwrap();
-    let program = ShaderProgram::from_shaders(vert, frag).unwrap();
+    let vert = ShaderPart::from_vert_source(&CString::new(include_str!("shaders/diffuse.vert")).unwrap()).unwrap();
+    let frag = ShaderPart::from_frag_source(&CString::new(include_str!("shaders/diffuse.frag")).unwrap()).unwrap();
+    let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
 
     let cobblestone = create_texture("blocks/cobblestone.png");
     gl_call!(gl::ActiveTexture(gl::TEXTURE0));
@@ -118,17 +127,76 @@ fn main() {
     // 그리기
     gl_call!(gl::BindVertexArray(cube_vao));
 
+    let mut prev_cursor_pos = (0.0, 0.0);
+
+
     while !window.should_close() {
         glfw.poll_events(); // Event를 당겨오는 거.
                             // first 인자: f64. 프로그램 시작 이후 지난 시간(초)
 
         for (_, event) in glfw::flush_messages(&events) {
             match event {
+                glfw::WindowEvent::CursorPos(x, y) => {
+                    let rel_x = x - prev_cursor_pos.0;
+                    let rel_y = y - prev_cursor_pos.1;
+
+                    camera_rotation.y += rel_x as f32 / 100.0;
+                    camera_rotation.x += rel_y as f32 / 100.0;
+
+                    camera_rotation.x = clamp(camera_rotation.x, -pi::<f32>() / 2.0 + 0.0001, pi::<f32>() / 2.0 - 0.0001,);
+                    
+                    prev_cursor_pos = (x, y);
+                }
+                glfw::WindowEvent::Key(key, _, action, _) => {
+                    if action == Action::Press || action == Action::Repeat {
+                        match key {
+                            glfw::Key::W => {
+                                camera_position += forward(&camera_rotation).scale(0.03f32);
+                            }
+                            glfw::Key::S => {
+                                camera_position -= forward(&camera_rotation).scale(0.03f32);
+                            }
+                            glfw::Key::A => {
+                                camera_position -= forward(&camera_rotation)
+                                    .cross(&Vector3::y())
+                                    .scale(0.03f32);
+                            }
+                            glfw::Key::D => {
+                                camera_position += forward(&camera_rotation)
+                                    .cross(&Vector3::y())
+                                    .scale(0.03f32);
+                            }
+                            glfw::Key::Q => {
+                                camera_position.y += 0.03;
+                            }
+                            glfw::Key::Z => {
+                                camera_position.y -= 0.03;
+                            }
+                            _ => {},
+                        }
+                    }
+                }
                 _ => {},
             }
         }
 
+        let direction = forward(&camera_rotation);
+
+        let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
+        let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
+        let model_matrix = {
+            let translate_matrix = Matrix4::new_translation(&vec3(5.0f32, 0.0, 0.0));
+            let rotate_matrix = Matrix4::from_euler_angles(0.0f32, 0.0, 0.0);
+            let scale_matrix = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
+
+            translate_matrix * rotate_matrix * scale_matrix
+        };
+
         program.use_program();
+        program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+        program.set_uniform_matrix4fv("view", view_matrix.as_ptr());
+        program.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
+        program.set_uniform1i("tex", 0);
 
         /*for (_, event) in glfw::flush_messages(&events) {
             println!("{:?}", event);
@@ -138,7 +206,7 @@ fn main() {
 // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
 
         gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36));
-        
+
         window.swap_buffers();
 
     }
