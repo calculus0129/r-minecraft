@@ -127,7 +127,7 @@ impl Renderer {
             binding_index_color,
             vbo,
             0,
-            (6 * std::mem::size_of::<f32>() as isize) as i32
+            (6 * std::mem::size_of::<f32>()) as i32
         ));
 
         Renderer {
@@ -157,7 +157,7 @@ impl Renderer {
         }.push(quad_props);
     }
 
-    pub fn end_batch(&mut self, program: &ShaderProgram) {
+    pub fn end_batch(&mut self, program: &mut ShaderProgram) {
         let mut draw_calls = 0;
 
         // TODO: Handle quads without textures
@@ -169,7 +169,7 @@ impl Renderer {
                 } else {
                     Ordering::Greater
                 }
-            }) // z값에 따라 오름차순 정렬 => 밑에서부터 구성되도록 => 덮어 씌워지게
+            }); // z값에 따라 오름차순 정렬 => 밑에서부터 구성되도록 => 덮어 씌워지게
         }
 
         // chunk를 HW에서 소화할 수 있는 texture 개수. 그 단위로 쪼갠 것.
@@ -210,6 +210,8 @@ impl Renderer {
 
             draw_calls += 1; // e.g. 100개인데 texture_unit이 15이면 7번 그려야 하니까 draw_calls는 7번임.
         }
+        
+        println!("Total draw calls: {draw_calls}");
     }
 
 }

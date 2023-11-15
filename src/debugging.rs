@@ -1,3 +1,6 @@
+use std::os::raw::{c_char, c_void};
+use std::ffi::CStr;
+
 #[macro_export]
 macro_rules! gl_call {
     ($fn_call:expr) => {
@@ -40,4 +43,50 @@ macro_rules! gl_call {
             ret
         }
     };
+}
+
+pub extern "system" fn debug_message_callback(
+    source: u32,
+    error_type: u32,
+    id: u32,
+    severity: u32,
+    _length: i32,
+    message: *const c_char,
+    _user_name: *mut c_void
+) {
+    // 디버그가 어디서 온건지
+    let source = match source {
+        gl::DEBUG_SOURCE_API => "Source: API".into(),
+        gl::DEBUG_SOURCE_WINDOW_SYSTEM => "Source: Window System".into(),
+        gl::DEBUG_SOURCE_SHADER_COMPILER => "Source: Shader Compiler".into(),
+        gl::DEBUG_SOURCE_THIRD_PARTY => "Source: Third Party".into(),
+        gl::DEBUG_SOURCE_APPLICATION => "Source: Application".into(),
+        gl::DEBUG_SOURCE_OTHER => "Source: Other".into(),
+        _ => format!("Source: *undocumented* {source}")
+    };
+    let error_type = match error_type {
+        gl::DEBUG_TYPE_ERROR => "Type: Error".into(),
+        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Type: Deprecated Behaviour".into(),
+        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Type: Undefined Behaviour".into(),
+        gl::DEBUG_TYPE_PORTABILITY => "Type: Portability".into(),
+        gl::DEBUG_TYPE_PERFORMANCE => "Type: Performance".into(),
+        gl::DEBUG_TYPE_MARKER => "Type: Marker".into(),
+        gl::DEBUG_TYPE_PUSH_GROUP => "Type: Push Group".into(),
+        gl::DEBUG_TYPE_POP_GROUP => "Type: Pop Group".into(),
+        gl::DEBUG_TYPE_OTHER => "Type: Other".into(),
+        _ => format!("Type: *undocumented* {error_type}")
+    };
+    let severity = match severity {
+        gl::DEBUG_SEVERITY_HIGH => "Severity: High".into(),
+        gl::DEBUG_SEVERITY_MEDIUM => "Severity: Medium".into(),
+        gl::DEBUG_SEVERITY_LOW => "Severity: Low".into(),
+        gl::DEBUG_SEVERITY_NOTIFICATION => "Severity: Notification".into(),
+        _ => format!("Severity: *undocumented* {severity}")
+    };
+    eprintln!("---------------");
+    unsafe { eprintln!("Debug message ({id}): {}", CStr::from_ptr(message).to_str().unwrap()) };
+    eprintln!("{source}");
+    eprintln!("{error_type}");
+    eprintln!("{severity}");
+    eprintln!();
 }
