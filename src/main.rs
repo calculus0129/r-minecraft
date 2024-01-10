@@ -1,7 +1,10 @@
+#[macro_use]
 pub mod debugging;
 pub mod renderer;
 pub mod shader;
 pub mod util;
+pub mod chunk;
+pub mod raycast;
 
 pub mod texture;
 
@@ -9,6 +12,7 @@ pub mod shapes;
 
 pub mod ecs;
 
+use crate::chunk::{BlockID, Chunk};
 use crate::renderer::{QuadProps, Renderer};
 use crate::shader::{ShaderPart, ShaderProgram};
 use crate::debugging::*;
@@ -16,14 +20,43 @@ use crate::texture::create_texture;
 use crate::util::forward;
 
 use rand::Rng;
-use glfw::{Key, CursorMode, Action};
+use image::ColorType;
+use glfw::{Key, CursorMode, Action, MouseButton};
 use glfw::ffi::{glfwGetTime, glfwSwapInterval};
 use glfw::Context;
-use nalgebra_glm::{vec3, pi};
+use nalgebra_glm::{vec3, pi, Vec2, vec1_to_vec2, vec2, IVec3};
 use nalgebra::{Vector3, Matrix4, clamp};
 
 use std::ffi::CString;
 use std::os::raw::c_void;
+use std::collections::HashMap;
+
+// "Why needed?"
+// input segregation is kkalkkums
+pub struct InputCache {
+    pub last_cursor_pos: Vec2,
+    pub cursor_rel_pos: Vec2,
+    pub key_states: HashMap<Key, Action>,
+}
+
+impl Default for InputCache {
+    fn default() -> Self {
+        InputCache {
+            last_cursor_pos: vec2(0.0, 0.0),
+            cursor_rel_pos: vec2(0.0, 0.0),
+            key_states: HashMap::new(),
+        }
+    }
+}
+
+impl InputCache {
+    pub fn is_key_pressed(&self, key: Key) -> bool {
+        match self.key_states.get(&key) {
+            Some(action) => *action == Action::Press || *action == Action::Repeat,
+            None => false,
+        }
+    }
+}
 
 fn main() {
     let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap(); // GLFW 초기화
@@ -56,6 +89,8 @@ fn main() {
     
     // ?
     window.set_raw_mouse_motion(true);
+    // mouse button information getting
+    window.set_mouse_button_polling(true); // self position informing
     // 마우스 비활성화. Different from 숨겨짐.
     window.set_cursor_mode(CursorMode::Disabled);
     window.set_cursor_pos(400.0, 400.0);
@@ -99,34 +134,87 @@ fn main() {
     let vert = ShaderPart::from_vert_source(&CString::new(include_str!("shaders/diffuse.vert")).unwrap()).unwrap();
     let frag = ShaderPart::from_frag_source(&CString::new(include_str!("shaders/diffuse.frag")).unwrap()).unwrap();
     let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
+    // Generate texture atlas
+    let mut texture_map: HashMap<BlockID, &str> = HashMap::new();
+    texture_map.insert(BlockID::DIRT, "blocks/dirt.png");
+    texture_map.insert(BlockID::COBBLESTONE, "blocks/cobblestone.png");
+    texture_map.insert(BlockID::OBSIDIAN, "blocks/obsidian.png");
 
-    let cobblestone = create_texture("blocks/cobblestone.png");
-    gl_call!(gl::ActiveTexture(gl::TEXTURE0));
-    gl_call!(gl::BindTexture(gl::TEXTURE_2D, cobblestone));
+    let mut atlas = 0;
+    gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
+    gl_call!(gl::TextureParameteri(
+        atlas,
+        gl::TEXTURE_MIN_FILTER,
+        gl::NEAREST_MIPMAP_NEAREST as i32
+    ));
+    gl_call!(gl::TextureParameteri(
+        atlas,
+        gl::TEXTURE_MAG_FILTER,
+        gl::NEAREST as i32
+    ));
+    gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024,));
 
-    let cube = shapes::unit_cube_array();
+    let mut uv_map = HashMap::<BlockID, ((f32, f32), (f32, f32))>::new();
+    let mut x = 0;
+    let mut y = 0;
 
-    let mut cube_vbo = 0;
-    gl_call!(gl::CreateBuffers(1, &mut cube_vbo));
-    gl_call!(gl::NamedBufferData(cube_vbo, (cube.len() * std::mem::size_of::<f32>()) as isize, cube.as_ptr() as *mut c_void, gl::STATIC_DRAW));
+    for (block, texture_path) in texture_map {
+        let img = image::open(texture_path);
+        let img = match img {
+            Ok(img) => img.flipv(),
+            Err(err) => panic!("Filename: {texture_path}, error: {}", err.to_string()),
+        };
 
-    let mut cube_vao = 0;
-    gl_call!(gl::CreateVertexArrays(1, &mut cube_vao));
+        match img.color() {
+            ColorType::Rgba8 => {}
+            _ => panic!("Texture format not supported"),
+        };
 
-    gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 0));
-    gl_call!(gl::EnableVertexArrayAttrib(cube_vao, 1));
+        gl_call!(gl::TextureSubImage2D(
+            atlas,
+            0,
+            x,
+            y,
+            img.width() as i32,
+            img.height() as i32,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            img.as_bytes().as_ptr() as *mut c_void
+        ));
 
-    gl_call!(gl::VertexArrayAttribFormat(cube_vao, 0, 3 as i32, gl::FLOAT, gl::FALSE, 0));
-    gl_call!(gl::VertexArrayAttribFormat(cube_vao, 1, 2 as i32, gl::FLOAT, gl::FALSE, 3*std::mem::size_of::<f32>() as u32));
-    
-    gl_call!(gl::VertexArrayAttribBinding(cube_vao, 0, 0));
-    gl_call!(gl::VertexArrayAttribBinding(cube_vao, 1, 0));
+        uv_map.insert(
+            block,
+            (
+                (x as f32 / 1024.0, y as f32 / 1024.0),
+                ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0),
+            ),
+        );
 
-    gl_call!(gl::VertexArrayVertexBuffer(cube_vao, 0, cube_vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
+        x += 16;
 
-    // 그리기
-    gl_call!(gl::BindVertexArray(cube_vao));
+        if x >= 1024 {
+            x = 0;
+            y += 16;
+        }
+    }
 
+    gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
+    gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
+
+    let mut chunk = Chunk::empty();
+
+    for y in 0..4 {
+        for x in 0..16 {
+            for z in 0..16 {
+                chunk.set_block(x, y, z, BlockID::COBBLESTONE);
+            }
+        }
+    }
+
+    chunk.regenerate_vbo(&uv_map);
+    gl_call!(gl::BindVertexArray(chunk.vao));
+
+    let mut input_cache = InputCache::default();
     let mut prev_cursor_pos = (0.0, 0.0);
 
 
@@ -147,45 +235,103 @@ fn main() {
                     
                     prev_cursor_pos = (x, y);
                 }
+                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
+                    window.set_should_close(true);
+                }
+                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
+                    for _ in 0..16 * 16 * 8 {
+                        chunk.set_block(
+                            rand::random::<usize>() % 16,
+                            rand::random::<usize>() % 16,
+                            
+                            rand::random::<usize>() % 16,
+                            BlockID::AIR,
+                        )
+                    }
+
+                    chunk.regenerate_vbo(&uv_map);
+                }
                 glfw::WindowEvent::Key(key, _, action, _) => {
-                    if action == Action::Press || action == Action::Repeat {
-                        match key {
-                            glfw::Key::W => {
-                                camera_position += forward(&camera_rotation).scale(0.03f32);
-                            }
-                            glfw::Key::S => {
-                                camera_position -= forward(&camera_rotation).scale(0.03f32);
-                            }
-                            glfw::Key::A => {
-                                camera_position -= forward(&camera_rotation)
-                                    .cross(&Vector3::y())
-                                    .scale(0.03f32);
-                            }
-                            glfw::Key::D => {
-                                camera_position += forward(&camera_rotation)
-                                    .cross(&Vector3::y())
-                                    .scale(0.03f32);
-                            }
-                            glfw::Key::Q => {
-                                camera_position.y += 0.03;
-                            }
-                            glfw::Key::Z => {
-                                camera_position.y -= 0.03;
-                            }
-                            _ => {},
+                    input_cache.key_states.insert(key, action);
+                }
+                glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
+                    let forward = forward(&camera_rotation);
+                    let get_voxel = |x: i32, y: i32, z: i32| {
+                        if x<0 || y<0 || z<0 || x>=16 || y>=16 || z>=16 {
+                            return None;
                         }
+
+                        let block = chunk.get_block(x as usize, y as usize, z as usize);
+
+                        if block == BlockID::AIR {
+                            return None;
+                        }
+
+                        Some((x as usize, y as usize, z as usize))
+                    };
+
+                    let hit =
+                        raycast::raycast(&get_voxel, &camera_position, &forward.normalize(), 4.0);
+
+                    if let Some(((x, y, z), normal)) = hit {
+                        if button == MouseButton::Button1 {
+                            chunk.set_block(x, y, z, BlockID::AIR);
+                            chunk.regenerate_vbo(&uv_map);
+                        } else if button == MouseButton::Button2 {
+                            let near = IVec3::new(x as i32, y as i32, z as i32) + normal;
+                            let (x, y, z) = (near.x, near.y, near.z);
+
+                            if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
+                                continue;
+                            }
+
+                            chunk.set_block(x as usize, y as usize, z as usize, BlockID::DIRT);
+                            chunk.regenerate_vbo(&uv_map);
+                        }
+                        println!("{} {} {}", x, y, z);
+                        dbg!(forward);
+                    } else {
+                        println!("No hit");
                     }
                 }
                 _ => {},
             }
         }
 
+        let multiplier = 0.01_f32;
+
+//action == Action::Press || action == Action::Repeat
+// 이따 ㄱㄱ
+        if input_cache.is_key_pressed(Key::W) {
+            camera_position += forward(&camera_rotation).scale(multiplier);
+        }
+        if input_cache.is_key_pressed(Key::S) {
+            camera_position -= forward(&camera_rotation).scale(multiplier);
+        }
+        if input_cache.is_key_pressed(Key::A) {
+            camera_position -= forward(&camera_rotation)
+                .cross(&Vector3::y())
+                .scale(multiplier);
+        }
+        if input_cache.is_key_pressed(Key::D) {
+            camera_position += forward(&camera_rotation)
+                .cross(&Vector3::y())
+                .scale(multiplier);
+        }
+        if input_cache.is_key_pressed(Key::Q) {
+            camera_position.y += multiplier;
+        }
+        if input_cache.is_key_pressed(Key::Z) {
+            camera_position.y -= multiplier;
+        }
+
+
         let direction = forward(&camera_rotation);
 
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
         let model_matrix = {
-            let translate_matrix = Matrix4::new_translation(&vec3(5.0f32, 0.0, 0.0));
+            let translate_matrix = Matrix4::new_translation(&vec3(0.0f32, 0.0, 0.0));
             let rotate_matrix = Matrix4::from_euler_angles(0.0f32, 0.0, 0.0);
             let scale_matrix = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
 
@@ -205,7 +351,7 @@ fn main() {
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
 
-        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, 36));
+        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
 
         window.swap_buffers();
 

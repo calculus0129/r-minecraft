@@ -15,3 +15,4 @@ itertools = "0.11.0" # => 문제 풀 때 반복자들을 많이 쓴다. # 기존
 specs = "0.20.0" # ECS nyumnyum
 nalgebra = "0.32.3" # For Matrix
 nalgebra-glm = "0.18.0" # glm (OpenGL Mathematics)
+num-traits = "0.2.17"
