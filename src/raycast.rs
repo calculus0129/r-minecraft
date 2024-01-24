@@ -30,6 +30,7 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
     let mut hit_norm = IVec3::new(0, 0, 0);
 
     let mut stepped_index = -1;
+    // t: the parameter.
     while t <= distance {
         // exit check
         if let Some(voxel) = get_voxel(i.x, i.y, i.z) {
@@ -75,7 +76,7 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
     }
 
     // no voxel hit found
-    hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
+    //hit_pos = origin.zip_map(&direction, |p, d| p + t * d);
     
     None
 }

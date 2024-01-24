@@ -4,6 +4,7 @@ pub mod renderer;
 pub mod shader;
 pub mod util;
 pub mod chunk;
+pub mod chunk_manager;
 pub mod raycast;
 
 pub mod texture;
@@ -12,7 +13,8 @@ pub mod shapes;
 
 pub mod ecs;
 
-use crate::chunk::{BlockID, Chunk};
+use crate::chunk::{BlockID};
+use crate::chunk_manager::ChunkManager;
 use crate::renderer::{QuadProps, Renderer};
 use crate::shader::{ShaderPart, ShaderProgram};
 use crate::debugging::*;
@@ -25,10 +27,11 @@ use glfw::{Key, CursorMode, Action, MouseButton};
 use glfw::ffi::{glfwGetTime, glfwSwapInterval};
 use glfw::Context;
 use nalgebra_glm::{vec3, pi, Vec2, vec1_to_vec2, vec2, IVec3};
-use nalgebra::{Vector3, Matrix4, clamp};
+use nalgebra::{Vector3, clamp};
 
 use std::ffi::CString;
 use std::os::raw::c_void;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 
 // "Why needed?"
@@ -201,18 +204,8 @@ fn main() {
     gl_call!(gl::ActiveTexture(gl::TEXTURE0 + 0));
     gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
 
-    let mut chunk = Chunk::empty();
-
-    for y in 0..4 {
-        for x in 0..16 {
-            for z in 0..16 {
-                chunk.set_block(x, y, z, BlockID::COBBLESTONE);
-            }
-        }
-    }
-
-    chunk.regenerate_vbo(&uv_map);
-    gl_call!(gl::BindVertexArray(chunk.vao));
+    let mut chunk_manager = ChunkManager::new();
+    chunk_manager.preload_some_chunks();
 
     let mut input_cache = InputCache::default();
     let mut prev_cursor_pos = (0.0, 0.0);
@@ -238,57 +231,27 @@ fn main() {
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
                 }
-                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
-                    for _ in 0..16 * 16 * 8 {
-                        chunk.set_block(
-                            rand::random::<usize>() % 16,
-                            rand::random::<usize>() % 16,
-                            
-                            rand::random::<usize>() % 16,
-                            BlockID::AIR,
-                        )
-                    }
-
-                    chunk.regenerate_vbo(&uv_map);
-                }
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                     let forward = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
-                        if x<0 || y<0 || z<0 || x>=16 || y>=16 || z>=16 {
-                            return None;
-                        }
-
-                        let block = chunk.get_block(x as usize, y as usize, z as usize);
-
-                        if block == BlockID::AIR {
-                            return None;
-                        }
-
-                        Some((x as usize, y as usize, z as usize))
+                        chunk_manager.get(x, y, z).filter(|&block| block!= BlockID::AIR).and_then(|_| Some((x, y, z)))
                     };
 
                     let hit =
-                        raycast::raycast(&get_voxel, &camera_position, &forward.normalize(), 4.0);
+                        raycast::raycast(&get_voxel, &camera_position, &forward.normalize(), 400.0);
 
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            chunk.set_block(x, y, z, BlockID::AIR);
-                            chunk.regenerate_vbo(&uv_map);
+                            chunk_manager.set(x, y, z, BlockID::AIR)
                         } else if button == MouseButton::Button2 {
-                            let near = IVec3::new(x as i32, y as i32, z as i32) + normal;
-                            let (x, y, z) = (near.x, near.y, near.z);
-
-                            if x < 0 || y < 0 || z < 0 || x >= 16 || y >= 16 || z >= 16 {
-                                continue;
-                            }
-
-                            chunk.set_block(x as usize, y as usize, z as usize, BlockID::DIRT);
-                            chunk.regenerate_vbo(&uv_map);
+                            let near = IVec3::new(x, y, z) + normal;
+                            chunk_manager.set(near.x, near.y, near.z, BlockID::DIRT)
                         }
-                        println!("{} {} {}", x, y, z);
+
+                        println!("HIT {} {} {}", x, y, z);
                         dbg!(forward);
                     } else {
                         println!("No hit");
@@ -298,7 +261,7 @@ fn main() {
             }
         }
 
-        let multiplier = 0.01_f32;
+        let multiplier = 0.2f32;
 
 //action == Action::Press || action == Action::Repeat
 // 이따 ㄱㄱ
@@ -330,16 +293,10 @@ fn main() {
 
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
-        let model_matrix = {
-            let translate_matrix = Matrix4::new_translation(&vec3(0.0f32, 0.0, 0.0));
-            let rotate_matrix = Matrix4::from_euler_angles(0.0f32, 0.0, 0.0);
-            let scale_matrix = Matrix4::new_nonuniform_scaling(&vec3(1.0f32, 1.0f32, 1.0f32));
 
-            translate_matrix * rotate_matrix * scale_matrix
-        };
+        chunk_manager.rebuild_dirty_chunks(&uv_map);
 
         program.use_program();
-        program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
         program.set_uniform_matrix4fv("view", view_matrix.as_ptr());
         program.set_uniform_matrix4fv("projection", projection_matrix.as_ptr());
         program.set_uniform1i("tex", 0);
@@ -351,7 +308,7 @@ fn main() {
         gl_call!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
 // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
 
-        gl_call!(gl::DrawArrays(gl::TRIANGLES, 0, chunk.vertices_drawn as i32));
+        chunk_manager.render_loaded_chunks(&mut program);
 
         window.swap_buffers();
 

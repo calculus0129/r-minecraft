@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::os::raw::c_void;
 use crate::{gl_call};
 
-const CHUNK_SIZE: usize = 16;
+const CHUNK_SIZE: u32 = 16;
 
-const CHUNK_VOLUME: usize = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 fn create_vao_vbo() -> (u32, u32) {
     let mut vao = 0;
@@ -26,7 +26,7 @@ fn create_vao_vbo() -> (u32, u32) {
 
     let mut vbo = 0;
     gl_call!(gl::CreateBuffers(1, &mut vbo));
-    gl_call!(gl::NamedBufferData(vbo, (180 * CHUNK_VOLUME * std::mem::size_of::<f32>()) as isize, std::ptr::null(), gl::DYNAMIC_DRAW));
+    gl_call!(gl::NamedBufferData(vbo, (180 * CHUNK_VOLUME as usize * std::mem::size_of::<f32>()) as isize, std::ptr::null(), gl::DYNAMIC_DRAW));
     
     gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
 
@@ -54,30 +54,33 @@ impl Distribution<BlockID> for Standard {
 }
 
 pub struct Chunk {
-    blocks: [BlockID; CHUNK_VOLUME],
+    blocks: [BlockID; CHUNK_VOLUME as usize],
     pub vao: u32,
     vbo: u32,
     pub vertices_drawn: u32, // for information.
+    pub dirty: bool, // data is changed: needs reloading
 }
 
 impl Chunk {
     pub fn empty() -> Chunk {
         let (vao, vbo) = create_vao_vbo();
         Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME],
+            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
+            dirty: false,
         }
     }
 
     pub fn full_of_block(block: BlockID) -> Chunk {
         let (vao, vbo) = create_vao_vbo();
         Chunk {
-            blocks: [block; CHUNK_VOLUME],
+            blocks: [block; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
+            dirty: true,
         }
     }
 
@@ -85,10 +88,11 @@ impl Chunk {
         let (vao, vbo) = create_vao_vbo();
 
         let mut chunk = Chunk {
-            blocks: [BlockID::AIR; CHUNK_VOLUME],
+            blocks: [BlockID::AIR; CHUNK_VOLUME as usize],
             vao,
             vbo,
             vertices_drawn: 0,
+            dirty: true,
         };
 
         for i in 0..chunk.blocks.len() {
@@ -99,18 +103,19 @@ impl Chunk {
     }
 
     #[inline]
-    fn coords_to_index(x: usize, y: usize, z: usize) -> usize {
-        y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x
+    fn coords_to_index(x: u32, y: u32, z: u32) -> usize {
+        (y * (CHUNK_SIZE * CHUNK_SIZE) + z * CHUNK_SIZE + x) as usize
     }
 
     #[inline]
-    pub fn get_block(&self, x: usize, y: usize, z: usize) -> BlockID {
+    pub fn get_block(&self, x: u32, y: u32, z: u32) -> BlockID {
         self.blocks[Chunk::coords_to_index(x, y, z)]
     }
 
     #[inline]
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: BlockID) {
+    pub fn set_block(&mut self, x: u32, y: u32, z: u32, block: BlockID) {
         self.blocks[Chunk::coords_to_index(x, y, z)] = block;
+        self.dirty = true
     }
 
     pub fn regenerate_vbo(&mut self, uv_map: &HashMap<BlockID, ((f32, f32), (f32, f32))>) {
@@ -141,6 +146,8 @@ impl Chunk {
                 }
             }
         }
+
+        self.dirty = false
     }
 
 }
