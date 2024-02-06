@@ -2,10 +2,11 @@ use crate::chunk_manager::Sides;
 
 #[rustfmt::skip]
 pub fn unit_cube_array(
-    position: (f32, f32, f32),
+    position : (f32, f32, f32),
     uv_bl: (f32, f32),
     uv_tr: (f32, f32),
-    sides: Sides,
+    sides : Sides
+
 ) -> Vec<f32> {
     let (x, y, z) = position;
     let (right, left, top, bottom, front, back) = sides;

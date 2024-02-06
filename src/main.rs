@@ -128,7 +128,7 @@ fn main() {
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
-    let mut camera_position = vec3(0.0f32, 0.0, 0.0);
+    let mut camera_position = vec3(3.0f32, 160.0, 4.0); // Temporary Value
     let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
 
 

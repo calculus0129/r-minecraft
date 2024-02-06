@@ -3,7 +3,7 @@ use crate::chunk_manager::{CHUNK_SIZE, CHUNK_VOLUME};
 use rand::prelude::Distribution;
 use rand::distributions::Standard;
 use rand::random;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 // use std::os::raw::c_void;
 use crate::{gl_call};
 

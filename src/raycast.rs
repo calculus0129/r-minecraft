@@ -61,7 +61,7 @@ pub fn raycast<T>(get_voxel: &dyn Fn(i32, i32, i32) -> Option<T>,
                 stepped_index = 2;
             }
         } else {
-            if (t_max.y < t_max.z) {
+            if t_max.y < t_max.z {
                 i.y += step.y;
                 t = t_max.y;
                 t_max.y += t_delta.y;

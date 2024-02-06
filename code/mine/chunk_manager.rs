@@ -147,7 +147,7 @@ impl ChunkManager {
                                     (cube_array.len() * std::mem::size_of::<f32>()) as isize,
                                     cube_array.as_ptr() as *const std::ffi::c_void
                                 ));
-                                chunk.vertices_drawn += cube_array.len() as u32 / 5;
+                                chunk.vertices_drawn += (cube_array.len() as u32) / 5;
 
                                 idx += cube_array.len();
                             }
