@@ -128,7 +128,7 @@ fn main() {
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
-    let mut camera_position = vec3(3.0f32, 160.0, 4.0); // Temporary Value
+    let mut camera_position = vec3(0.0f32, 5.0, 0.0); // Temporary Value
     let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
 
 
@@ -205,7 +205,8 @@ fn main() {
     gl_call!(gl::BindTexture(gl::TEXTURE_2D, atlas));
 
     let mut chunk_manager = ChunkManager::new();
-    chunk_manager.preload_some_chunks();
+    // chunk_manager.preload_some_chunks();
+    chunk_manager.simplex();
 
     let mut input_cache = InputCache::default();
     let mut prev_cursor_pos = (0.0, 0.0);
@@ -237,7 +238,7 @@ fn main() {
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                     let forward = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
-                        chunk_manager.get(x, y, z).filter(|&block| block!= BlockID::AIR).and_then(|_| Some((x, y, z)))
+                        chunk_manager.get_block(x, y, z).filter(|&block| block!= BlockID::AIR).and_then(|_| Some((x, y, z)))
                     };
 
                     let hit =
@@ -245,10 +246,10 @@ fn main() {
 
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            chunk_manager.set(x, y, z, BlockID::AIR)
+                            chunk_manager.set_block(x, y, z, BlockID::AIR)
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            chunk_manager.set(near.x, near.y, near.z, BlockID::DIRT)
+                            chunk_manager.set_block(near.x, near.y, near.z, BlockID::DIRT)
                         }
 
                         println!("HIT {} {} {}", x, y, z);

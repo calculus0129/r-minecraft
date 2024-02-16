@@ -16,3 +16,4 @@ specs = "0.20.0" # ECS nyumnyum
 nalgebra = "0.32.3" # For Matrix
 nalgebra-glm = "0.18.0" # glm (OpenGL Mathematics)
 num-traits = "0.2.17"
+noise = "0.8.2"

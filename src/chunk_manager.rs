@@ -1,6 +1,7 @@
 use crate::chunk::{BlockID, Chunk};
-use crate::shapes::{unit_cube_array};
+use crate::shapes::write_unit_cube_to_ptr;
 use std::{borrow::Borrow, collections::{HashMap, HashSet}};
+use noise::{NoiseFn, SuperSimplex};
 use crate::shader::ShaderProgram;
 use nalgebra::Matrix4;
 use nalgebra_glm::vec3;
@@ -18,9 +19,9 @@ pub struct ChunkManager {
 impl ChunkManager {
 
     pub fn preload_some_chunks(&mut self) {
-        for y in 0..10 {
-            for z in 0..10 {
-                for x in 0..10 {
+        for y in 0..2 {
+            for z in 0..2 {
+                for x in 0..2 {
                     self.loaded_chunks.insert((x, y, z), Chunk::random());
                 }
             }
@@ -30,6 +31,31 @@ impl ChunkManager {
     pub fn new() -> ChunkManager {
         ChunkManager {
             loaded_chunks: HashMap::new(),
+        }
+    }
+
+    pub fn simplex(&mut self) {
+        let ss = SuperSimplex::new(1296);
+        let n = 5; //20;
+
+        for y in 0..16 {
+            for z in -n..=n {
+                for x in -n..=n {
+                    self.loaded_chunks.insert((x, y, z), Chunk::empty());
+                }
+            }
+        }
+        for x in -16 * n .. 16 * n {
+            for z in -16*n .. 16*n {
+                let (xf, zf) = (x as f64/64.0, z as f64 / 64.0);
+                let y = ss.get([xf, zf]);
+                let y = (16.0 * (y+1.0)) as i32;
+
+                self.set_block(x, y, z, BlockID::DIRT);
+                self.set_block(x, y-1, z, BlockID::DIRT);
+                self.set_block(x, y-2, z, BlockID::DIRT);
+                self.set_block(x, y-3, z, BlockID::COBBLESTONE);
+            }
         }
     }
 
@@ -69,7 +95,7 @@ impl ChunkManager {
         (x, y, z)
     }
 
-    pub fn get(&self, x: i32, y: i32, z: i32) -> Option<BlockID> {
+    pub fn get_block(&self, x: i32, y: i32, z: i32) -> Option<BlockID> {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z) = ChunkManager::get_chunk_and_block_coords(x, y, z);
 
         self.loaded_chunks.get((chunk_x, chunk_y, chunk_z).borrow()).and_then(|chunk| {
@@ -77,7 +103,7 @@ impl ChunkManager {
         }) // and_then은 없으면 return None
     }
 
-     pub fn set(&mut self, x: i32, y: i32, z: i32, block: BlockID) {
+     pub fn set_block(&mut self, x: i32, y: i32, z: i32, block: BlockID) {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z) = 
             ChunkManager::get_chunk_and_block_coords(x, y, z);
 
@@ -128,6 +154,8 @@ impl ChunkManager {
             let chunk = self.loaded_chunks.get_mut(coords);
 
             if let Some(chunk) = chunk {
+                let vbo_ptr = gl_call!(gl::MapNamedBuffer(chunk.vbo, gl::WRITE_ONLY)) as *mut f32;
+
                 let sides_vec = active_sides.get(coords).unwrap();
                 let mut cnt = 0;
 
@@ -139,23 +167,31 @@ impl ChunkManager {
                             if block != BlockID::AIR {
                                 let (uv_bl, uv_tr) = *uv_map.get(&block).unwrap();
                                 let active_sides = sides_vec[cnt];
-                                let cube_array = unit_cube_array((x as f32, y as f32, z as f32), uv_bl, uv_tr, active_sides);
 
-                                gl_call!(gl::NamedBufferSubData(
-                                    chunk.vbo,
-                                    (idx * std::mem::size_of::<f32>()) as isize,
-                                    (cube_array.len() * std::mem::size_of::<f32>()) as isize,
-                                    cube_array.as_ptr() as *const std::ffi::c_void
-                                ));
-                                chunk.vertices_drawn += cube_array.len() as u32 / 5;
+                                let copied_vertices = unsafe{write_unit_cube_to_ptr(vbo_ptr.offset(idx), (x as f32, y as f32, z as f32), uv_bl, uv_tr, active_sides)};
 
-                                idx += cube_array.len();
+                                chunk.vertices_drawn += copied_vertices;
+                                idx += copied_vertices as isize * 5;
+
+                                // let cube_array = unit_cube_array((x as f32, y as f32, z as f32), uv_bl, uv_tr, active_sides);
+
+                                // gl_call!(gl::NamedBufferSubData(
+                                //     chunk.vbo,
+                                //     (idx * std::mem::size_of::<f32>()) as isize,
+                                //     (cube_array.len() * std::mem::size_of::<f32>()) as isize,
+                                //     cube_array.as_ptr() as *const std::ffi::c_void
+                                // ));
+                                // chunk.vertices_drawn += cube_array.len() as u32 / 5;
+
+                                // idx += cube_array.len();
                             }
 
                             cnt += 1;
                         }
                     }
                 }
+
+                gl_call!(gl::UnmapNamedBuffer(chunk.vbo)); // Buffer 맵 해제
 
                 chunk.dirty = false;
                 chunk.dirty_neighbours.clear();
@@ -164,12 +200,12 @@ impl ChunkManager {
      }
 
      pub fn get_active_sides_of_block(&self, x: i32, y: i32, z: i32) -> Sides {
-        let right = self.get(x + 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
-        let left = self.get(x - 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
-        let top = self.get(x, y + 1, z).filter(|&b| b != BlockID::AIR).is_none();
-        let bottom = self.get(x, y - 1, z).filter(|&b| b != BlockID::AIR).is_none();
-        let front = self.get(x, y, z + 1).filter(|&b| b != BlockID::AIR).is_none();
-        let back = self.get(x, y, z - 1).filter(|&b| b != BlockID::AIR).is_none();
+        let right = self.get_block(x + 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let left = self.get_block(x - 1, y, z).filter(|&b| b != BlockID::AIR).is_none();
+        let top = self.get_block(x, y + 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let bottom = self.get_block(x, y - 1, z).filter(|&b| b != BlockID::AIR).is_none();
+        let front = self.get_block(x, y, z + 1).filter(|&b| b != BlockID::AIR).is_none();
+        let back = self.get_block(x, y, z - 1).filter(|&b| b != BlockID::AIR).is_none();
 
         (right, left, top, bottom, front, back)
      }
