@@ -5,7 +5,7 @@ use rand::distributions::Standard;
 use rand::random;
 use std::collections::HashSet;
 // use std::os::raw::c_void;
-use crate::{gl_call};
+use crate::gl_call;
 
 
 
@@ -41,6 +41,8 @@ pub enum BlockID {
     Obsidian,
     OakLog,
     OakLeaves,
+    Debug,
+    Debug2,
 }
 
 impl BlockID {

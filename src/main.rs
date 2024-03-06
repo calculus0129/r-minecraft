@@ -7,12 +7,15 @@ pub mod chunk;
 pub mod chunk_manager;
 pub mod raycast;
 pub mod block_texture_sides;
+pub mod aabb;
 
 pub mod texture;
 
 pub mod shapes;
 
 pub mod ecs;
+
+pub mod collisions;
 
 use crate::chunk::{BlockID};
 use crate::chunk_manager::ChunkManager;
@@ -27,7 +30,7 @@ use image::{ColorType, DynamicImage};
 use glfw::{Key, CursorMode, Action, MouseButton};
 use glfw::ffi::{glfwGetTime, glfwSwapInterval};
 use glfw::Context;
-use nalgebra_glm::{vec3, pi, Vec2, vec1_to_vec2, vec2, IVec3};
+use nalgebra_glm::{vec3, pi, Vec2, vec1_to_vec2, vec2, IVec3, Vec3};
 use nalgebra::{Vector3, clamp};
 
 use std::ffi::CString;
@@ -35,6 +38,8 @@ use std::os::raw::c_void;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use crate::block_texture_sides::BlockFaces;
+use crate::aabb::AABB;
+use crate::collisions::player_collision_detection;
 
 type UVCoords = (f32, f32, f32, f32);
 
@@ -64,6 +69,46 @@ impl InputCache {
             Some(action) => *action == Action::Press || *action == Action::Repeat,
             None => false,
         }
+    }
+}
+
+const PLAYER_WIDTH: f32 = 0.6;
+const PLAYER_HEIGHT: f32 = 1.8;
+const PLAYER_EYES_HEIGHT: f32 = 1.6;
+const PLAYER_HALF_WIDTH: f32 = PLAYER_WIDTH / 2.0;
+const PLAYER_HALF_HEIGHT: f32 = PLAYER_HEIGHT / 2.0;
+
+pub struct Player {
+    pub position: Vec3,
+    pub aabb: AABB,
+    pub velocity: Vec3,
+    pub acceleration: Vec3,
+    pub rotation: Vec3,
+}
+
+impl Player {
+    pub fn new_at_position(position: Vec3) -> Self {
+        Self {
+            position,
+            aabb: {
+                let mins = vec3(position.x - PLAYER_HALF_WIDTH, position.y, position.z - PLAYER_HALF_WIDTH);
+                let maxs = vec3(position.x + PLAYER_HALF_WIDTH, position.y + PLAYER_HEIGHT, position.z + PLAYER_HALF_WIDTH);
+                AABB::new(mins, maxs)
+            },
+            velocity: vec3(0.0, 0.0, 0.0),
+            acceleration: vec3(0.0, 0.0, 0.0),
+            rotation: vec3(0.0, 0.0, 0.0),
+        }
+    }
+
+    // mouse move => called
+
+    pub fn get_camera_position(&self) -> Vec3 {
+        self.position + vec3(0.0, PLAYER_EYES_HEIGHT, 0.0)
+    }
+
+    pub fn get_camera_rotation(&mut self) -> &mut Vec3 {
+        &mut self.rotation
     }
 }
 
@@ -134,8 +179,7 @@ fn main() {
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
-    let mut camera_position = vec3(0.0f32, 0.0, 0.0); // Temporary Value
-    let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
+    let mut player = Player::new_at_position(vec3(0.0, 30.0, 0.0));
 
 
     let mut renderer = Renderer::new(100_000); // _: 쉼표 느낌
@@ -159,6 +203,9 @@ fn main() {
         bottom: "blocks/oak_log_top.png"
     });
     texture_map.insert(BlockID::OakLeaves, BlockFaces::All("blocks/oak_leaves.png"));
+    texture_map.insert(BlockID::Debug, BlockFaces::All("blocks/debug.png"));
+    texture_map.insert(BlockID::Debug2, BlockFaces::All("blocks/debug2.png"));
+    
 
     let mut atlas = 0;
     gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
@@ -304,34 +351,40 @@ fn main() {
                     let rel_x = x - prev_cursor_pos.0;
                     let rel_y = y - prev_cursor_pos.1;
 
-                    camera_rotation.y += rel_x as f32 / 100.0;
-                    camera_rotation.x += rel_y as f32 / 100.0;
+                    player.rotation.y += rel_x as f32 / 100.0;
+                    player.rotation.x += rel_y as f32 / 100.0;
 
-                    camera_rotation.x = clamp(camera_rotation.x, -pi::<f32>() / 2.0 + 0.0001, pi::<f32>() / 2.0 - 0.0001,);
+                    player.rotation.x = clamp(player.rotation.x, -pi::<f32>() / 2.0 + 0.0001, pi::<f32>() / 2.0 - 0.0001,);
                     
                     prev_cursor_pos = (x, y);
                 }
                 glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
                     window.set_should_close(true);
                 }
+                glfw::WindowEvent::Key(Key::Space, _, Action::Press, _) => {
+                    if player.velocity.y == 0.0 {
+                        player.velocity.y = 1.0;
+                    }
+                }
                 glfw::WindowEvent::Key(key, _, action, _) => {
                     input_cache.key_states.insert(key, action);
                 }
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
-                    let forward = forward(&camera_rotation);
+                    let forward = forward(&player.rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
                         chunk_manager.get_block(x, y, z).filter(|&block| block!= BlockID::Air).and_then(|_| Some((x, y, z)))
                     };
 
                     let hit =
-                        raycast::raycast(&get_voxel, &camera_position, &forward.normalize(), 400.0);
+                        raycast::raycast(&get_voxel, &player.get_camera_position(), &forward.normalize(), 400.0);
 
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
                             chunk_manager.set_block(x, y, z, BlockID::Air)
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            chunk_manager.set_block(near.x, near.y, near.z, BlockID::Dirt)
+                            chunk_manager.set_block(near.x, near.y, near.z, BlockID::Debug2);
+                            println!("Put block at {} {} {}", near.x, near.y, near.z);
                         }
 
                         println!("HIT {} {} {}", x, y, z);
@@ -344,36 +397,40 @@ fn main() {
             }
         }
 
-        let multiplier = 0.2f32;
+        let multiplier = 0.001f32;
+
+        let mut rotation = player.rotation.clone();
+        rotation.x = 0.0;
 
 //action == Action::Press || action == Action::Repeat
 // 이따 ㄱㄱ
         if input_cache.is_key_pressed(Key::W) {
-            camera_position += forward(&camera_rotation).scale(multiplier);
+            player.acceleration += forward(&rotation).scale(multiplier);
         }
         if input_cache.is_key_pressed(Key::S) {
-            camera_position -= forward(&camera_rotation).scale(multiplier);
+            player.acceleration += -forward(&rotation).scale(multiplier);
         }
         if input_cache.is_key_pressed(Key::A) {
-            camera_position -= forward(&camera_rotation)
+            player.acceleration += -forward(&rotation)
                 .cross(&Vector3::y())
                 .scale(multiplier);
         }
         if input_cache.is_key_pressed(Key::D) {
-            camera_position += forward(&camera_rotation)
+            player.acceleration += forward(&rotation)
                 .cross(&Vector3::y())
                 .scale(multiplier);
         }
-        if input_cache.is_key_pressed(Key::Q) {
-            camera_position.y += multiplier;
-        }
-        if input_cache.is_key_pressed(Key::Z) {
-            camera_position.y -= multiplier;
-        }
+        // if input_cache.is_key_pressed(Key::Q) {
+        //     camera_position.y += multiplier;
+        // }
+        // if input_cache.is_key_pressed(Key::Z) {
+        //     camera_position.y -= multiplier;
+        // }
 
 
-        let direction = forward(&camera_rotation);
-
+        let direction = forward(&player.rotation);
+        
+        let camera_position = player.get_camera_position();
         let view_matrix = nalgebra_glm::look_at(&camera_position, &(camera_position + direction), &Vector3::y());
         let projection_matrix = nalgebra_glm::perspective(1.0, pi::<f32>() / 2.0, 0.1, 1000.0);
 
@@ -392,6 +449,17 @@ fn main() {
 // 화면이 front(보여지는거)와 back buffer(갱신한 윈도우)가 있는데 그걸 바꿔치기한다.
 
         chunk_manager.render_loaded_chunks(&mut program);
+
+        player.acceleration.y = -0.02;
+        player.velocity += player.acceleration;
+
+        player_collision_detection(&mut player, &chunk_manager);
+
+        player.velocity.x *= 0.9;
+        player.velocity.z *= 0.9;
+        player.velocity.x = 0.0;
+        player.velocity.y = 0.0;
+        player.velocity.z = 0.0;
 
         window.swap_buffers();
 
