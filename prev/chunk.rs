@@ -25,7 +25,7 @@ fn create_vao_vbo() -> (u32, u32) {
 
     let mut vbo = 0;
     gl_call!(gl::CreateBuffers(1, &mut vbo));
-    // gl_call!(gl::NamedBufferData(vbo, (180 * CHUNK_VOLUME as usize * std::mem::size_of::<f32>()) as isize, std::ptr::null(), gl::DYNAMIC_DRAW));
+    gl_call!(gl::NamedBufferData(vbo, (180 * CHUNK_VOLUME as usize * std::mem::size_of::<f32>()) as isize, std::ptr::null(), gl::DYNAMIC_DRAW));
     
     gl_call!(gl::VertexArrayVertexBuffer(vao, 0, vbo, 0, (5 * std::mem::size_of::<f32>()) as i32));
 
@@ -44,10 +44,6 @@ pub enum BlockID {
 }
 
 impl BlockID {
-    pub fn is_air(&self) -> bool {
-        self == &BlockID::Air
-    }
-
     pub fn is_transparent(&self) -> bool {
         match self {
             BlockID::Air | BlockID::OakLeaves => true,

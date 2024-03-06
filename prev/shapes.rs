@@ -6,9 +6,10 @@ pub unsafe fn write_unit_cube_to_ptr (
     ptr: *mut f32,
     position: (f32, f32, f32),
     (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces,
-    [right, left, top, bottom, front, back]: Sides,
+    sides: Sides,
 ) -> u32 {
     let (x, y, z) = position;
+    let (right, left, top, bottom, front, back) = sides;
 
     let (vertex_size, vertices_per_face) = (5, 6); // 5: x,y,z,uv_...,uv_...
     let face_size = vertex_size * vertices_per_face;

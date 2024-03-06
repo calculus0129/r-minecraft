@@ -6,6 +6,7 @@ pub mod util;
 pub mod chunk;
 pub mod chunk_manager;
 pub mod raycast;
+pub mod block_texture_sides;
 
 pub mod texture;
 
@@ -22,7 +23,7 @@ use crate::texture::create_texture;
 use crate::util::forward;
 
 use rand::Rng;
-use image::ColorType;
+use image::{ColorType, DynamicImage};
 use glfw::{Key, CursorMode, Action, MouseButton};
 use glfw::ffi::{glfwGetTime, glfwSwapInterval};
 use glfw::Context;
@@ -33,6 +34,11 @@ use std::ffi::CString;
 use std::os::raw::c_void;
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use crate::block_texture_sides::BlockFaces;
+
+type UVCoords = (f32, f32, f32, f32);
+
+type UVFaces = (UVCoords, UVCoords, UVCoords, UVCoords, UVCoords, UVCoords);
 
 // "Why needed?"
 // input segregation is kkalkkums
@@ -128,7 +134,7 @@ fn main() {
     gl_call!(gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA));
     gl_call!(gl::Viewport(0, 0, 800, 800));
 
-    let mut camera_position = vec3(0.0f32, 5.0, 0.0); // Temporary Value
+    let mut camera_position = vec3(0.0f32, 0.0, 0.0); // Temporary Value
     let mut camera_rotation = vec3(0.0f32, 0.0, 0.0);
 
 
@@ -138,10 +144,21 @@ fn main() {
     let frag = ShaderPart::from_frag_source(&CString::new(include_str!("shaders/diffuse.frag")).unwrap()).unwrap();
     let mut program = ShaderProgram::from_shaders(vert, frag).unwrap();
     // Generate texture atlas
-    let mut texture_map: HashMap<BlockID, &str> = HashMap::new();
-    texture_map.insert(BlockID::DIRT, "blocks/dirt.png");
-    texture_map.insert(BlockID::COBBLESTONE, "blocks/cobblestone.png");
-    texture_map.insert(BlockID::OBSIDIAN, "blocks/obsidian.png");
+    let mut texture_map: HashMap<BlockID, BlockFaces<&str>> = HashMap::new();
+    texture_map.insert(BlockID::Dirt, BlockFaces::All("blocks/dirt.png"));
+    texture_map.insert(BlockID::GrassBlock, BlockFaces::Sides {
+        sides: "blocks/grass_block_side.png",
+        top: "blocks/grass_block_top.png",
+        bottom: "blocks/dirt.png",
+    });
+    texture_map.insert(BlockID::Cobblestone, BlockFaces::All("blocks/cobblestone.png"));
+    texture_map.insert(BlockID::Obsidian, BlockFaces::All("blocks/obsidian.png"));
+    texture_map.insert(BlockID::OakLog, BlockFaces::Sides{
+        sides: "blocks/oak_log.png",
+        top: "blocks/oak_log_top.png",
+        bottom: "blocks/oak_log_top.png"
+    });
+    texture_map.insert(BlockID::OakLeaves, BlockFaces::All("blocks/oak_leaves.png"));
 
     let mut atlas = 0;
     gl_call!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut atlas));
@@ -157,11 +174,11 @@ fn main() {
     ));
     gl_call!(gl::TextureStorage2D(atlas, 1, gl::RGBA8, 1024, 1024,));
 
-    let mut uv_map = HashMap::<BlockID, ((f32, f32), (f32, f32))>::new();
+    let mut uv_map = HashMap::<BlockID, BlockFaces<UVCoords>>::new();
     let mut x = 0;
     let mut y = 0;
 
-    for (block, texture_path) in texture_map {
+    let load_image = |texture_path: &str| {
         let img = image::open(texture_path);
         let img = match img {
             Ok(img) => img.flipv(),
@@ -173,11 +190,22 @@ fn main() {
             _ => panic!("Texture format not supported"),
         };
 
+        img
+    };
+
+    // bit blit? 다수의 비트맵을 하나의 비트맵으로 병합하는 기술
+    // blit: bit block image transfer
+    // 여러 이미지를 병합하는 기술
+    // black and => 검정색됨
+    // bit black: or => 영향 없음
+
+    let mut blit_image = |img: &mut DynamicImage| {
+        let (dest_x, dest_y) = (x, y);
         gl_call!(gl::TextureSubImage2D(
             atlas,
             0,
-            x,
-            y,
+            dest_x,
+            dest_y,
             img.width() as i32,
             img.height() as i32,
             gl::RGBA,
@@ -185,19 +213,73 @@ fn main() {
             img.as_bytes().as_ptr() as *mut c_void
         ));
 
-        uv_map.insert(
-            block,
-            (
-                (x as f32 / 1024.0, y as f32 / 1024.0),
-                ((x as f32 + 16.0) / 1024.0, (y as f32 + 16.0) / 1024.0),
-            ),
-        );
-
         x += 16;
 
         if x >= 1024 {
             x = 0;
             y += 16;
+        }
+
+        let (dest_x, dest_y) = (dest_x as f32, dest_y as f32);
+        (dest_x / 1024.0, dest_y/1024.0, (dest_x + 16.0) / 1024.0, (dest_y + 16.0) / 1024.0)
+    };
+
+    for (block, faces) in texture_map {
+        match faces {
+            BlockFaces::All(all) => {
+                let mut img = load_image(all);
+                let uv = blit_image(&mut img);
+                uv_map.insert(block, BlockFaces::All(uv));
+            }
+            BlockFaces::Sides{sides, top, bottom} => {
+                let mut img = load_image(sides);
+                let uv_sides = blit_image(&mut img);
+
+                let mut img = load_image(top);
+                let uv_top = blit_image(&mut img);
+
+                let mut img = load_image(bottom);
+                let uv_bottom = blit_image(&mut img);
+
+                uv_map.insert(block, BlockFaces::Sides {
+                    sides: uv_sides,
+                    top:uv_top,
+                    bottom:uv_bottom,
+                });
+            }
+            BlockFaces::Each { top, bottom, front, back, left, right } => {
+                let mut img = load_image(top);
+                let uv_top = blit_image(&mut img);
+
+                let mut img = load_image(bottom);
+                let uv_bottom = blit_image(&mut img);
+
+                let mut img = load_image(front);
+                let uv_front = blit_image(&mut img);
+
+                let mut img = load_image(back);
+                let uv_back = blit_image(&mut img);
+
+                let mut img = load_image(left);
+                let uv_left = blit_image(&mut img);
+
+                let mut img = load_image(right);
+                let uv_right = blit_image(&mut img);
+
+                uv_map.insert(
+                    block,
+                    BlockFaces::Each {
+                        top: uv_top,
+                        bottom: uv_bottom,
+                        front: uv_front,
+                        back: uv_back,
+                        left: uv_left,
+                        right: uv_right,
+                    },
+                );
+            
+            }
+
         }
     }
 
@@ -238,7 +320,7 @@ fn main() {
                 glfw::WindowEvent::MouseButton(button, Action::Press, _) => {
                     let forward = forward(&camera_rotation);
                     let get_voxel = |x: i32, y: i32, z: i32| {
-                        chunk_manager.get_block(x, y, z).filter(|&block| block!= BlockID::AIR).and_then(|_| Some((x, y, z)))
+                        chunk_manager.get_block(x, y, z).filter(|&block| block!= BlockID::Air).and_then(|_| Some((x, y, z)))
                     };
 
                     let hit =
@@ -246,10 +328,10 @@ fn main() {
 
                     if let Some(((x, y, z), normal)) = hit {
                         if button == MouseButton::Button1 {
-                            chunk_manager.set_block(x, y, z, BlockID::AIR)
+                            chunk_manager.set_block(x, y, z, BlockID::Air)
                         } else if button == MouseButton::Button2 {
                             let near = IVec3::new(x, y, z) + normal;
-                            chunk_manager.set_block(near.x, near.y, near.z, BlockID::DIRT)
+                            chunk_manager.set_block(near.x, near.y, near.z, BlockID::Dirt)
                         }
 
                         println!("HIT {} {} {}", x, y, z);
