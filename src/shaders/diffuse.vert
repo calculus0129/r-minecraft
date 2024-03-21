@@ -15,6 +15,6 @@ out VertexAttributes {
 void main() {
     gl_Position = projection * view * model * vec4(pos, 1.0);
 
-    attrs.frag_pos = vec3(view * model * vec4(pos, 1.0f)); // 색깔 칠할 때는 Vec3만 알아도 된다고 한다.
+    attrs.frag_pos = vec3(view * model * vec4(pos, 1.0f));
     attrs.texture_coords = texture_coords;
 }

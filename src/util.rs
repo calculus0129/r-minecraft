@@ -1,4 +1,4 @@
-use nalgebra_glm::{Vec3, vec3};
+use nalgebra_glm::{vec3, Vec3};
 
 pub fn forward(rotation: &Vec3) -> Vec3 {
     vec3(

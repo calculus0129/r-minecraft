@@ -2,7 +2,7 @@ use crate::chunk_manager::Sides;
 use crate::UVFaces;
 
 #[rustfmt::skip]
-pub unsafe fn write_unit_cube_to_ptr (
+pub unsafe fn write_unit_cube_to_ptr(
     ptr: *mut f32,
     position: (f32, f32, f32),
     (front_uv, back_uv, top_uv, bottom_uv, left_uv, right_uv): UVFaces,
@@ -10,7 +10,8 @@ pub unsafe fn write_unit_cube_to_ptr (
 ) -> u32 {
     let (x, y, z) = position;
 
-    let (vertex_size, vertices_per_face) = (5, 6); // 5: x,y,z,uv_...,uv_...
+    let vertex_size = 5;
+    let vertices_per_face = 6;
     let face_size = vertex_size * vertices_per_face;
 
     let mut idx = 0;
@@ -52,8 +53,8 @@ pub unsafe fn write_unit_cube_to_ptr (
             0.0 + x, 1.0 + y, 1.0 + z, left_uv.2, left_uv.3,
             0.0 + x, 1.0 + y, 0.0 + z, left_uv.0, left_uv.3,
             0.0 + x, 0.0 + y, 0.0 + z, left_uv.0, left_uv.1,
-            ].as_ptr(), face_size);
-    
+        ].as_ptr(), face_size);
+
         idx += face_size as isize;
         copied_vertices += vertices_per_face;
     }

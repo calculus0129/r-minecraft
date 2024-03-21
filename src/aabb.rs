@@ -2,14 +2,13 @@ use nalgebra_glm::Vec3;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AABB {
-    // mins: leftdown
     pub mins: Vec3,
     pub maxs: Vec3,
 }
 
 impl AABB {
     pub fn new(mins: Vec3, maxs: Vec3) -> Self {
-        Self {mins, maxs}
+        Self { mins, maxs }
     }
 
     pub fn translate(&mut self, translation: &Vec3) {
@@ -18,8 +17,11 @@ impl AABB {
     }
 
     pub fn intersects(&self, other: &AABB) -> bool {
-        self.mins.x < other.maxs.x && self.maxs.x > other.mins.x &&
-        self.mins.y < other.maxs.y && self.maxs.y > other.mins.y &&
-        self.mins.x < other.maxs.z && self.maxs.z > other.mins.z
+        self.mins.x < other.maxs.x
+            && self.maxs.x > other.mins.x
+            && self.mins.y < other.maxs.y
+            && self.maxs.y > other.mins.y
+            && self.mins.z < other.maxs.z
+            && self.maxs.z > other.mins.z
     }
 }

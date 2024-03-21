@@ -1,33 +1,26 @@
+use crate::block_texture_sides::{get_uv_every_side, BlockFaces};
+use crate::chunk::{BlockID, Chunk};
 use crate::shader::ShaderProgram;
+use crate::shapes::write_unit_cube_to_ptr;
 use crate::UVCoords;
-use crate::{
-    chunk::{BlockID, Chunk},
-    shapes::write_unit_cube_to_ptr,
-};
 use nalgebra::Matrix4;
 use nalgebra_glm::vec3;
 use noise::{NoiseFn, SuperSimplex};
+use rand::random;
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
-use crate::block_texture_sides::{BlockFaces, get_uv_every_side};
-use rand::random;
 
 pub const CHUNK_SIZE: u32 = 16;
 pub const CHUNK_VOLUME: u32 = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
 pub type Sides = [bool; 6];
 
+#[derive(Default)]
 pub struct ChunkManager {
     pub loaded_chunks: HashMap<(i32, i32, i32), Chunk>,
 }
 
 impl ChunkManager {
-    pub fn new() -> ChunkManager {
-        ChunkManager {
-            loaded_chunks: HashMap::new(),
-        }
-    }
-
     pub fn preload_some_chunks(&mut self) {
         for y in 0..2 {
             for z in 0..2 {
@@ -64,13 +57,13 @@ impl ChunkManager {
                 if random::<u32>() % 100 == 0 {
                     let h = 5;
 
-                    for i in y+1..y+1+h {
+                    for i in y + 1..y + 1 + h {
                         self.set_block(x, i, z, BlockID::OakLog);
                     }
 
-                    for yy in y + h - 2 ..= y + h - 1 {
-                        for xx in x - 2..=x+2 {
-                            for zz in z-2 ..= z+2 {
+                    for yy in y + h - 2..=y + h - 1 {
+                        for xx in x - 2..=x + 2 {
+                            for zz in z - 2..=z + 2 {
                                 if xx != x || zz != z {
                                     self.set_block(xx, yy, zz, BlockID::OakLeaves);
                                 }
@@ -78,20 +71,19 @@ impl ChunkManager {
                         }
                     }
 
-                    for xx in x - 1 ..= x + 1 {
-                        for zz in z - 1 ..= z + 1 {
+                    for xx in x - 1..=x + 1 {
+                        for zz in z - 1..=z + 1 {
                             if xx != x || zz != z {
-                                self.set_block(xx, y+h, zz, BlockID::OakLeaves);
+                                self.set_block(xx, y + h, zz, BlockID::OakLeaves);
                             }
                         }
                     }
 
-                    self.set_block(x, y+h+1, z, BlockID::OakLeaves);
-                    self.set_block(x+1, y+h+1, z, BlockID::OakLeaves);
-                    self.set_block(x-1, y+h+1, z, BlockID::OakLeaves);
-                    self.set_block(x, y+h+1, z+1, BlockID::OakLeaves);
-                    self.set_block(x, y+h+1, z-1, BlockID::OakLeaves);
-
+                    self.set_block(x, y + h + 1, z, BlockID::OakLeaves);
+                    self.set_block(x + 1, y + h + 1, z, BlockID::OakLeaves);
+                    self.set_block(x - 1, y + h + 1, z, BlockID::OakLeaves);
+                    self.set_block(x, y + h + 1, z + 1, BlockID::OakLeaves);
+                    self.set_block(x, y + h + 1, z - 1, BlockID::OakLeaves);
                 }
             }
         }
@@ -102,7 +94,7 @@ impl ChunkManager {
         let chunk_y = if y < 0 { (y + 1) / 16 - 1 } else { y / 16 };
         let chunk_z = if z < 0 { (z + 1) / 16 - 1 } else { z / 16 };
 
-        let block_x = x.rem_euclid(16) as u32; // (음수) % (양수)의 결과를 0 또는 양수로 고정
+        let block_x = x.rem_euclid(16) as u32;
         let block_y = y.rem_euclid(16) as u32;
         let block_z = z.rem_euclid(16) as u32;
 
@@ -125,16 +117,19 @@ impl ChunkManager {
 
         self.loaded_chunks
             .get((chunk_x, chunk_y, chunk_z).borrow())
-            .and_then(|chunk| Some(chunk.get_block(block_x, block_y, block_z)))
+            .map(|chunk| chunk.get_block(block_x, block_y, block_z))
     }
 
     pub fn set_block(&mut self, x: i32, y: i32, z: i32, block: BlockID) {
         let (chunk_x, chunk_y, chunk_z, block_x, block_y, block_z) =
             ChunkManager::get_chunk_and_block_coords(x, y, z);
 
-        self.loaded_chunks
+        if let Some(chunk) = self
+            .loaded_chunks
             .get_mut((chunk_x, chunk_y, chunk_z).borrow())
-            .map(|chunk| chunk.set_block(block_x, block_y, block_z, block));
+        {
+            chunk.set_block(block_x, block_y, block_z, block);
+        }
     }
 
     pub fn rebuild_dirty_chunks(&mut self, uv_map: &HashMap<BlockID, BlockFaces<UVCoords>>) {
@@ -178,24 +173,25 @@ impl ChunkManager {
             let chunk = self.loaded_chunks.get_mut(coords);
 
             if let Some(chunk) = chunk {
-
                 chunk.dirty = false;
                 chunk.dirty_neighbours.clear();
                 chunk.vertices_drawn = 0;
 
                 let sides = active_sides.get(coords).unwrap();
-                let n_visible_faces = sides.iter().map(|faces| faces.iter().fold(0, |acc, &x| acc + x as u32)).fold(0, |acc, n| acc + n);
+                let n_visible_faces = sides
+                    .iter()
+                    .map(|faces| faces.iter().fold(0, |acc, &x| acc + x as u32))
+                    .fold(0, |acc, n| acc + n);
 
                 if n_visible_faces == 0 {
                     continue;
                 }
 
-                // Initialize the vao
-
+                // Initialize the VBO
                 gl_call!(gl::NamedBufferData(
                     chunk.vbo,
-                    (100 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
-                    std::ptr::null(), 
+                    (180 * std::mem::size_of::<f32>() * n_visible_faces as usize) as isize,
+                    std::ptr::null(),
                     gl::DYNAMIC_DRAW
                 ));
 
@@ -212,12 +208,17 @@ impl ChunkManager {
 
                             if block != BlockID::Air {
                                 let active_sides = sides_vec[cnt];
-
                                 let uvs = uv_map.get(&block).unwrap().clone();
                                 let uvs = get_uv_every_side(uvs);
 
-                                let copied_vertices = unsafe { write_unit_cube_to_ptr(
-                                    vbo_ptr.offset(idx), (x as f32, y as f32, z as f32), uvs, active_sides)};
+                                let copied_vertices = unsafe {
+                                    write_unit_cube_to_ptr(
+                                        vbo_ptr.offset(idx),
+                                        (x as f32, y as f32, z as f32),
+                                        uvs,
+                                        active_sides,
+                                    )
+                                };
 
                                 chunk.vertices_drawn += copied_vertices;
                                 idx += copied_vertices as isize * 5;
@@ -226,6 +227,7 @@ impl ChunkManager {
                         }
                     }
                 }
+
                 gl_call!(gl::UnmapNamedBuffer(chunk.vbo));
             }
         }
@@ -266,7 +268,7 @@ impl ChunkManager {
             if chunk.vertices_drawn == 0 {
                 continue;
             }
-            
+
             let model_matrix = {
                 let translate_matrix =
                     Matrix4::new_translation(&vec3(*x as f32, *y as f32, *z as f32).scale(16.0));
@@ -277,7 +279,9 @@ impl ChunkManager {
             };
 
             gl_call!(gl::BindVertexArray(chunk.vao));
-            program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+            unsafe {
+                program.set_uniform_matrix4fv("model", model_matrix.as_ptr());
+            }
             gl_call!(gl::DrawArrays(
                 gl::TRIANGLES,
                 0,

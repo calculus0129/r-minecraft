@@ -1,6 +1,0 @@
-- 외장 하드
-- 컴활: 쓰는 언어가 따로 없음. Excel 정도
-
-
-OpenGL library 설치 X!!
-or Graphic Card가 OpenGL을 지원 안함.
